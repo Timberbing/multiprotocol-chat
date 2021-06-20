@@ -1,80 +1,72 @@
 import socket
 import struct
-import sys
 import config
 import json
 import threading
-
-message = 'SERVER DISCOVERY'
-multicast_group = (config.MULTICAST_IP, config.MULTICAST_PORT)
+import random
 
 
-def tcp_handler():
+def multicast_handler(client_port: int):
+    # create the datagram socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(('', client_port))
+    # set a timeout so the socket does not block indefinitely when trying to receive data.
+    sock.settimeout(0.2)
+
+    # Set the time-to-live for messages to 1 so they do not go past the local network segment.
+    ttl = struct.pack('b', 1)
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
+
+    try:
+        # send request to the multicast group
+        print(f'CLIENT: Sending multicast message to {config.MULTICAST_IP}')
+
+        message = 'SERVER DISCOVERY'
+        multicast_group = (config.MULTICAST_IP, config.MULTICAST_PORT)
+        sock.sendto(bytes(message, encoding='utf-8'), multicast_group)
+    finally:
+        sock.close()
+
+
+def tcp_handler(port: int):
     sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_address = (config.SERVER_IP, config.TCP_PORT)
-    sock_tcp.bind(server_address)
+    sock_tcp.bind(('', port))
+    sock_tcp.listen(5)
 
-    sock_tcp.listen(1)
-
+    # empty buffer
+    buff = b''
     while True:
-        # Wait for a connection
-        print('waiting for a connection')
-        connection, client_address = sock.accept()
+        print(f'CLIENT: Waiting for a TCP connection')
+        connection, client_address = sock_tcp.accept()
         try:
-            print(sys.stderr, 'connection from', client_address)
+            print(f'CLIENT: Connection from {client_address}')
 
-            # Receive the data in small chunks and retransmit it
+            username = input('=== Provide Your Nickname === ')
+            connection.sendall(bytes(username, encoding='utf8'))
+            # receive the data in chunks and add to the buffer
             while True:
-                data = connection.recv(16)
-                print('received "%s"' % data)
-                if data:
-                    print('sending data back to the client')
-                    connection.sendall(data)
-                else:
-                    print('no more data from', client_address)
+                print(f'CLIENT: Waiting for the server to send client base')
+                data = connection.recv(512)
+                buff += data
+                if not data:
                     break
+                break
         finally:
-            # Clean up the connection
+            print(f'CLIENT: Client base received')
+            res_dict = json.loads(buff.decode('utf-8'))
+            # print(res_dict)
+            print(f'CLIENT: Closing TCP connection')
+            # clean up the connection
             connection.close()
-
-
-thread = threading.Thread(target=tcp_handler, args=())
-# run thread in the background as daemon
-# thread.daemon = True
-thread.start()
-
-# Create the datagram socket
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-
-# Set a timeout so the socket does not block indefinitely when trying
-# to receive data.
-sock.settimeout(0.2)
-
-# Set the time-to-live for messages to 1 so they do not go past the
-# local network segment.
-ttl = struct.pack('b', 1)
-sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
-
-try:
-
-    # Send data to the multicast group
-    print('sending "%s"' % message)
-    sent = sock.sendto(bytes(message, encoding='utf-8'), multicast_group)
-
-    # Look for responses from all recipients
-    while True:
-        print('waiting to receive')
-        try:
-            data, server = sock.recvfrom(1024)
-        except socket.timeout:
-            print('timed out, no more responses')
             break
-        else:
-            res_dict = json.loads(data.decode('utf-8'))
-            print(res_dict)
 
-finally:
-    print('closing socket')
-    sock.close()
-    # sock_tcp.close()
+
+if __name__ == '__main__':
+    port = random.randint(50_000, 65_000)
+    # pass selected port to the TCP thread, in order to listen on the same port
+    # thread in the background as daemon
+    th = threading.Thread(target=tcp_handler, args=(client_port,), daemon=True)
+    th.start()
+    multicast_handler(port)
+    th.join()
+

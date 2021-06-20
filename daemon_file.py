@@ -4,61 +4,71 @@ import config
 import json
 import struct
 import threading
-import time
 import os
 from daemon import runner
-from datetime import datetime
-
-client_base = { "clients":
-    [
-        {
-            "address": "192.168.0.1",
-            "port": "2208",
-            "nickname": "nikita",
-            "online": True
-         },
-        {
-            "address": "192.168.0.2",
-            "port": "2208",
-            "nickname": "pobeda",
-            "online": False
-        },
-    ]
-}
 
 
-class App():   
+client_base = {"clients": [
+    {
+        "ip": "192.168.0.1",
+        "port": 2250,
+        "nickname": "pepka",
+        "online": True
+    }
+]}
+
+
+class App():
+
     def __init__(self):
         self.stdin_path = '/dev/null'
         self.stdout_path = '/dev/null'
         self.stderr_path = '/dev/null'
-        self.pidfile_path =  os.path.join(os.getcwd(), 'multiproto.pid')
+        self.pidfile_path = os.path.join(os.getcwd(), 'multiproto.pid')
         self.pidfile_timeout = 5
 
     def run(self):
         while True:
-            # logger.debug("Debug message")
-            # logger.info("Info message")
-            # logger.warn("Warning message")
-            # logger.error("Error message")
-            # logger.info(f'LOG: {datetime.now()}')
+            # main thread
             self.multicast_handler()
 
     @staticmethod
-    def tcp_handler(client_address):
+    def tcp_handler(address):
+        logger.info(f'Starting TCP session with {address}')
         # TCP socket creation
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect(client_address)
+        sock.bind(('', config.TCP_PORT))
+        sock.connect(address)
 
         # convert dict structure to bytes
         msg = json.dumps(client_base).encode('utf-8')
 
         try:
-            sock.sendall(msg)
+
+            while True:
+                data = sock.recv(1024)
+                if not data:
+                    break
+                # TODO: there might be additional authentication for the user
+                _nickname = data.decode('utf8')
+                logger.info(f'New user named: {_nickname}')
+
+                # send client base before the update
+                sock.sendall(msg)
+
+                # update client base
+                client_base['clients'].append(
+                    {
+                        "ip": address[0],
+                        "port": address[1],
+                        "nickname": _nickname,
+                        "online": True
+                    }
+                )
+                # TODO: update client base via SCTP
+
         finally:
-            print('closing socket')
             sock.close()
-        pass
 
     def multicast_handler(self):
         server_address = ('', config.MULTICAST_PORT)
@@ -76,22 +86,14 @@ class App():
 
         # Receive/respond loop
         while True:
-            print('\nwaiting to receive message')
             logger.info(f'Listening for multicast messages')
             data, address = sock.recvfrom(1024)
-
-            print('received %s bytes from %s' % (len(data), address))
             logger.info(f'Received multicast message from {address}')
-            print(data)
 
-            print('sending acknowledgement to', address)
-            logger.info(f'Starting TCP session with {address}')
             # call TCP session
-            thread = threading.Thread(target=self.tcp_handler, args=address)
+            thread = threading.Thread(target=self.tcp_handler, args=(address,), daemon=True)
             # run thread in the background as daemon
-            thread.daemon = True
             thread.start()
-            # sock.sendto(json.dumps(client_base).encode('utf-8'), address)
 
 
 if __name__ == '__main__':
