@@ -1,14 +1,28 @@
+from os import wait
 import socket
 import sctp
-
-sk = sctp.sctpsocket_tcp(socket.AF_INET)
-sk.connect(("192.168.100.9", 36412))
+import time
 
 
-print("Sending Message")
+cli = sctp.sctpsocket_udp(socket.AF_INET)
+tmp = sctp.event_subscribe(cli)
+tmp.set_association(1)
+tmp.set_data_io(1)
 
-sk.sctp_send(msg='hello world')
-sk.shutdown(0)
+cli.autoclose = 0 # no automatic closing of the associacion
 
+cli_ = sctp.sctpsocket_udp(socket.AF_INET)
+tmp = sctp.event_subscribe(cli_)
+tmp.set_association(1)
+tmp.set_data_io(1)
 
-sk.close()
+cli.bind(("127.0.0.1", 10001))
+cli_.bind(("127.0.0.1", 10002))
+cli.sctp_send(msg=b'0', to=("127.0.0.1", 10000))
+cli_.sctp_send(msg=b'0', to=("127.0.0.1", 10000))
+time.sleep(10)
+
+cli.close()
+time.sleep(3)
+cli_.close()
+ 
