@@ -2,6 +2,7 @@ import logging
 import socket
 import config
 import json
+import sctp
 import struct
 import threading
 import os
@@ -70,6 +71,29 @@ class App():
         finally:
             sock.close()
 
+    @staticmethod
+    def sctp_handler(address):
+        logger.info(f'Starting STCP session for {address}')
+        # SCTP socket creation
+        sock = sctp.sctpsocket_udp(socket.AF_INET)
+        # get notifications on assoc state
+        tmp = sctp.event_subscribe(sock)
+        tmp.set_association(1)
+        tmp.set_data_io(1)
+        sock.autoclose = 0
+        sock.bind(('', config.SCTP_PORT))
+        sock.sctp_send(msg=b'0', to=address)
+
+        while True:
+            try:
+                fromaddr, flags, msgret, notif = sock.sctp_recv(2048)
+                if notif.state == 3:
+                    logger.info(f'Client {sock.getpaddr(notif.assoc_id)} is down.')
+                elif notif.state == 0:
+                    logger.info(f'Client {sock.getpaddr(notif.assoc_id)} is up.')
+            except:
+                pass
+
     def multicast_handler(self):
         server_address = ('', config.MULTICAST_PORT)
 
@@ -94,6 +118,10 @@ class App():
             thread = threading.Thread(target=self.tcp_handler, args=(address,), daemon=True)
             # run thread in the background as daemon
             thread.start()
+            # call SCTP session
+            _thread = threading.Thread(target=self.sctp_handler, args=(address,), daemon=True)
+            # run thread in the background as daemon
+            _thread.start()
 
 
 if __name__ == '__main__':

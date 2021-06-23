@@ -15,10 +15,9 @@ srv.bind(addr_server)
 srv.listen(5)
  
 while True:
-    #srv_to_cli, _addr_client = srv.accept()
     try:
         fromaddr, flags, msgret, notif = srv.sctp_recv(2048)
-        _ = "up" if notif.state==0 else "down"
+        _ = "up" if notif.state == 0 else "down"
         print(f"assoc: {notif.assoc_id} -> {_}")
         print('===============================================')
     except:

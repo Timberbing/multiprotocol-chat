@@ -10,6 +10,7 @@ from typing import Dict, List
 import socket
 import struct
 import config
+import sctp
 import json
 import threading
 import random
@@ -19,6 +20,27 @@ class Client():
     def __init__(self):
         self.client_list = dict()
         self.username = ''
+
+    @staticmethod
+    def sctp_handler(client_port: int):
+        # SCTP socket creation
+        sock = sctp.sctpsocket_udp(socket.AF_INET)
+        # get notifications on assoc state
+        tmp = sctp.event_subscribe(sock)
+        tmp.set_association(1)
+        tmp.set_data_io(1)
+        sock.autoclose = 0
+        sock.bind(('', client_port))
+
+        while True:
+            try:
+                fromaddr, flags, msgret, notif = sock.sctp_recv(2048)
+                if notif.state == 3:
+                    print(f'Client {sock.getpaddr(notif.assoc_id)} is down.')
+                elif notif.state == 0:
+                    print.info(f'Client {sock.getpaddr(notif.assoc_id)} is up.')
+            except:
+                pass
 
     @staticmethod
     def multicast_handler(client_port: int):
