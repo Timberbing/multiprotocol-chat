@@ -150,16 +150,19 @@ class Client():
                 client_address = input_split[1]
                 client = {}
                 # check if client_address is an IP:port string or client name
-                cli_filtered = list(filter(lambda c: c['name'] == client_address, clients))
-
+                cli_filtered = list(filter(lambda c: c['nickname'] == client_address, clients))
+                print(cli_filtered)
                 if len(cli_filtered): # client name found -> assign client
-                    client = cli_filtered[0]
+                    client['ip'] = cli_filtered[0]['ip']
+                    # TODO: change this +1
+                    client['port'] = cli_filtered[0]['port']+1
                 else:
                     # split input to separate IP / port
                     client['ip'] = client_address.split(':')[0]
-                    client['port'] = int(client_address.split(':')[1])
+                    # TODO: change this +1
+                    client['port'] = int(client_address.split(':')[1])+1
 
-                success = do_connect(client, _username)
+                success = self.do_connect(client, _username)
                 if success:
                     print(f'Message to {client_address} delievered.')
                 else:
@@ -173,14 +176,11 @@ class Client():
             sys.exit(1)
 
 
-
-
 if __name__ == '__main__':
     usage_str = """
     Commands:
         list - display available clients
         msg CLIENT_NAME/CLIENT_ADDRESS - connect to one of the clients specified in <list>
-        wait - allow other clients to connect to you 
         exit - close chat client
     """
 
