@@ -9,14 +9,9 @@ import os
 from daemon import runner
 
 
-client_base = {"clients": [
-    {
-        "ip": "192.168.0.1",
-        "port": 2250,
-        "nickname": "pepka",
-        "online": True
-    }
-]}
+client_base = {"clients": []}
+
+cli_assoc = dict()
 
 
 class App():
@@ -29,6 +24,9 @@ class App():
         self.pidfile_timeout = 5
 
     def run(self):
+        thread = threading.Thread(target=self.sctp_handler, args=(), daemon=True)
+            # run thread in the background as daemon
+        thread.start()  
         while True:
             # main thread
             self.multicast_handler()
@@ -72,27 +70,63 @@ class App():
             sock.close()
 
     @staticmethod
-    def sctp_handler(address):
-        logger.info(f'Starting STCP session for {address}')
+    def update_client_base(socket):
+        for client in client_base['clients']:
+            if client['online'] == True:
+                _ = (client['ip'], client['port'])
+                logger.info(f'Sending client base update to...{_[0]}:{_[1]}')
+                # do not send the client its own information
+                _tmp = {"clients": 
+                    [
+                        x for x in client_base['clients'] if x['ip']!= client['ip'] or x['port']!= client['port']
+                    ]
+                } 
+                if _tmp['clients']:
+                    # convert dict structure to bytes
+                    logger.info(_tmp)
+                    msg = json.dumps(_tmp).encode('utf-8')
+                    socket.sctp_send(msg, to=_)
+
+    def sctp_handler(self):
+        logger.info(f'Starting STCP session')
         # SCTP socket creation
         sock = sctp.sctpsocket_udp(socket.AF_INET)
         # get notifications on assoc state
         tmp = sctp.event_subscribe(sock)
         tmp.set_association(1)
-        tmp.set_data_io(1)
-        sock.autoclose = 0
         sock.bind(('', config.SCTP_PORT))
-        sock.sctp_send(msg=b'0', to=address)
+        sock.listen(5)
 
         while True:
             try:
                 fromaddr, flags, msgret, notif = sock.sctp_recv(2048)
                 if notif.state == 3:
-                    logger.info(f'Client {sock.getpaddr(notif.assoc_id)} is down.')
-                elif notif.state == 0:
-                    logger.info(f'Client {sock.getpaddr(notif.assoc_id)} is up.')
+                    _ = cli_assoc[notif.assoc_id]
+                    del cli_assoc[notif.assoc_id]
+                    logger.info(f'Client {_[0]}:{_[1]} is down.')
+
+                    for client in client_base['clients']:
+                        if client['ip'] == _[0] and client['port'] == _[1] and client['online']==True:
+                            client['online'] = False
+
+                    self.update_client_base(sock)
+                    
+                else:
+                    _ = sock.getpaddrs(notif.assoc_id)[1]
+                    logger.info(f'Client {_[0]}:{_[1]} is up.')
+                    # assign association id to the client
+                    cli_assoc[notif.assoc_id] = _
+
+                    for client in client_base['clients']:
+                        if client['ip'] == _[0] and client['port'] == _[1] and client['online']==False:
+                            client['online'] = True
+
+                    self.update_client_base(sock)
+
             except:
                 pass
+
+        
 
     def multicast_handler(self):
         server_address = ('', config.MULTICAST_PORT)
@@ -113,15 +147,11 @@ class App():
             logger.info(f'Listening for multicast messages')
             data, address = sock.recvfrom(1024)
             logger.info(f'Received multicast message from {address}')
-
             # call TCP session
             thread = threading.Thread(target=self.tcp_handler, args=(address,), daemon=True)
             # run thread in the background as daemon
             thread.start()
-            # call SCTP session
-            _thread = threading.Thread(target=self.sctp_handler, args=(address,), daemon=True)
-            # run thread in the background as daemon
-            _thread.start()
+
 
 
 if __name__ == '__main__':

@@ -12,6 +12,7 @@ import struct
 import config
 import sctp
 import json
+import os
 import threading
 import random
 
@@ -20,27 +21,27 @@ class Client():
     def __init__(self):
         self.client_list = dict()
         self.username = ''
+        self.stcp_sock = object
 
-    @staticmethod
-    def sctp_handler(client_port: int):
+
+    def sctp_handler(self, client_port: int):
         # SCTP socket creation
         sock = sctp.sctpsocket_udp(socket.AF_INET)
-        # get notifications on assoc state
-        tmp = sctp.event_subscribe(sock)
-        tmp.set_association(1)
-        tmp.set_data_io(1)
+        self.stcp_sock = sock
         sock.autoclose = 0
         sock.bind(('', client_port))
 
+        sock.sctp_send(msg=b'0', to=(config.SERVER_IP, config.SCTP_PORT))
         while True:
             try:
                 fromaddr, flags, msgret, notif = sock.sctp_recv(2048)
-                if notif.state == 3:
-                    print(f'Client {sock.getpaddr(notif.assoc_id)} is down.')
-                elif notif.state == 0:
-                    print.info(f'Client {sock.getpaddr(notif.assoc_id)} is up.')
+                print(f'CLIENT: Received an update of client base')
+                
+                client_list = json.loads(msgret.decode('utf-8'))
+                self.client_list = client_list
             except:
                 pass
+
 
     @staticmethod
     def multicast_handler(client_port: int):
@@ -101,8 +102,7 @@ class Client():
     def tcp_listener(_port: int):
         s = socket.socket()
         # host = socket.gethostname()
-        host = '0.0.0.0'
-        s.bind((host, _port))
+        s.bind(('', _port))
         s.listen(5)
         print('TCP listener started on port', _port)
 
@@ -124,9 +124,12 @@ class Client():
     @staticmethod
     def do_list(clients: List):
         print("Available clients:")
-
         for client in clients:
-            print(f'address: {client["ip"]}:{client["port"]}, nickname: {client["nickname"]}')
+            if not client['online']:
+                print(f'address: {client["ip"]}:{client["port"]}, nickname: {client["nickname"]} *offline*')
+            else: 
+                print(f'address: {client["ip"]}:{client["port"]}, nickname: {client["nickname"]} *online*')
+
 
     @staticmethod
     def do_connect(address: Dict, _username: str) -> bool:
@@ -173,7 +176,6 @@ class Client():
                 client = {}
                 # check if client_address is an IP:port string or client name
                 cli_filtered = list(filter(lambda c: c['nickname'] == client_address, clients))
-                print(cli_filtered)
                 if len(cli_filtered): # client name found -> assign client
                     client['ip'] = cli_filtered[0]['ip']
                     # TODO: change this +1
@@ -195,7 +197,8 @@ class Client():
 
         if action == 'exit':
             print('Exiting...')
-            sys.exit(1)
+            self.stcp_sock.close()
+            os._exit(1)
 
 
 if __name__ == '__main__':
@@ -211,10 +214,13 @@ if __name__ == '__main__':
     port = random.randint(50_000, 65_000)
     # pass selected port to the TCP thread, in order to listen on the same port
     # thread in the background as daemon
-    th = threading.Thread(target=s.tcp_handler, args=(port,), daemon=True)
+    th = threading.Thread(target=s.tcp_handler, args=(port,))
     th.start()
     s.multicast_handler(port)
     th.join()
+
+    th_ = threading.Thread(target=s.sctp_handler, args=(port,))
+    th_.start()
 
     print(s.client_list)
 
